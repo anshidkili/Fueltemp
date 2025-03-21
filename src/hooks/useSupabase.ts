@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
-import { supabase } from "../lib/supabase";
 
-// Generic hook for fetching data from Supabase
-export function useSupabaseQuery<T>(
+// Generic hook for fetching data
+export function useDataQuery<T>(
   queryFn: () => Promise<T>,
   dependencies: any[] = [],
 ) {
@@ -32,11 +31,9 @@ export function useSupabaseQuery<T>(
   return { data, error, isLoading };
 }
 
-// Hook for real-time subscriptions
-export function useSupabaseSubscription<T>(
-  table: string,
-  column: string,
-  value: string,
+// Mock hook for real-time data
+export function useRealtimeData<T>(
+  resourceName: string,
   queryFn: () => Promise<T[]>,
 ) {
   const [data, setData] = useState<T[]>([]);
@@ -50,7 +47,7 @@ export function useSupabaseSubscription<T>(
         const initialData = await queryFn();
         setData(initialData);
       } catch (err) {
-        console.error("Error fetching initial data:", err);
+        console.error(`Error fetching initial ${resourceName} data:`, err);
         setError(err instanceof Error ? err : new Error(String(err)));
       } finally {
         setIsLoading(false);
@@ -59,29 +56,16 @@ export function useSupabaseSubscription<T>(
 
     fetchInitialData();
 
-    // Set up real-time subscription
-    const subscription = supabase
-      .channel(`${table}-changes`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table,
-          filter: `${column}=eq.${value}`,
-        },
-        () => {
-          // Refetch data when changes occur
-          fetchInitialData();
-        },
-      )
-      .subscribe();
+    // Set up polling for real-time simulation
+    const intervalId = setInterval(() => {
+      fetchInitialData();
+    }, 30000); // Poll every 30 seconds
 
     return () => {
-      subscription.unsubscribe();
+      clearInterval(intervalId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [table, column, value]);
+  }, [resourceName]);
 
   return { data, error, isLoading };
 }

@@ -1,4 +1,4 @@
-import { useSupabaseQuery, useSupabaseSubscription } from "./useSupabase";
+import { useDataQuery, useRealtimeData } from "./useSupabase";
 import {
   getSales,
   getSaleById,
@@ -11,20 +11,18 @@ export function useSales(
   startDate?: string,
   endDate?: string,
 ) {
-  return useSupabaseQuery(
+  return useDataQuery(
     () => getSales(stationId, startDate, endDate),
     [stationId, startDate, endDate],
   );
 }
 
 export function useRealtimeSales(stationId: string) {
-  return useSupabaseSubscription("sales", "station_id", stationId, () =>
-    getSales(stationId),
-  );
+  return useRealtimeData(`sales-${stationId}`, () => getSales(stationId));
 }
 
 export function useSale(saleId: string) {
-  return useSupabaseQuery(() => getSaleById(saleId), [saleId]);
+  return useDataQuery(() => getSaleById(saleId), [saleId]);
 }
 
 export function useCustomerSales(
@@ -32,7 +30,7 @@ export function useCustomerSales(
   startDate?: string,
   endDate?: string,
 ) {
-  return useSupabaseQuery(
+  return useDataQuery(
     () => getCustomerSales(customerId, startDate, endDate),
     [customerId, startDate, endDate],
   );
@@ -43,7 +41,7 @@ export function useVehicleSales(
   startDate?: string,
   endDate?: string,
 ) {
-  return useSupabaseQuery(
+  return useDataQuery(
     () => getVehicleSales(vehicleId, startDate, endDate),
     [vehicleId, startDate, endDate],
   );

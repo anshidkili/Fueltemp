@@ -1,4 +1,54 @@
-import { supabase } from "../lib/supabase";
+import { dataService } from "../lib/supabase";
+
+// Mock sales data
+const mockSales = [
+  {
+    id: "1",
+    station_id: "1",
+    dispenser_id: "1",
+    employee_id: "1",
+    customer_id: "1",
+    vehicle_id: "1",
+    fuel_type_id: "1",
+    quantity_liters: 50,
+    price_per_liter: 3.5,
+    total_amount: 175.0,
+    payment_method: "cash",
+    transaction_date: "2023-06-15T10:30:00",
+    created_at: "2023-06-15T10:30:00",
+    dispensers: { dispenser_number: 1 },
+    fuel_types: { name: "Regular Unleaded" },
+    employees: { profiles: { full_name: "John Smith" } },
+    customers: {
+      company_name: "ABC Logistics",
+      profiles: { full_name: "John Doe" },
+    },
+    vehicles: { license_plate: "ABC-123", make: "Toyota", model: "Hilux" },
+  },
+  {
+    id: "2",
+    station_id: "1",
+    dispenser_id: "2",
+    employee_id: "2",
+    customer_id: "1",
+    vehicle_id: "2",
+    fuel_type_id: "3",
+    quantity_liters: 75,
+    price_per_liter: 3.8,
+    total_amount: 285.0,
+    payment_method: "credit_account",
+    transaction_date: "2023-06-14T14:15:00",
+    created_at: "2023-06-14T14:15:00",
+    dispensers: { dispenser_number: 2 },
+    fuel_types: { name: "Diesel" },
+    employees: { profiles: { full_name: "Emily Johnson" } },
+    customers: {
+      company_name: "ABC Logistics",
+      profiles: { full_name: "John Doe" },
+    },
+    vehicles: { license_plate: "ABC-456", make: "Isuzu", model: "NPR" },
+  },
+];
 
 export interface Sale {
   id: string;
@@ -46,63 +96,63 @@ export async function getSales(
   startDate?: string,
   endDate?: string,
 ) {
-  let query = supabase
-    .from("sales")
-    .select(
-      `
-      *,
-      dispensers(dispenser_number),
-      fuel_types(name),
-      employees(profiles(full_name)),
-      customers(company_name, profiles(full_name)),
-      vehicles(license_plate, make, model)
-    `,
-    )
-    .eq("station_id", stationId)
-    .order("transaction_date", { ascending: false });
+  // Mock implementation using the mock data
+  console.log(`Getting sales for station ${stationId}`);
+  if (startDate) console.log(`Start date: ${startDate}`);
+  if (endDate) console.log(`End date: ${endDate}`);
 
+  // Filter by station ID
+  let filteredSales = mockSales.filter((sale) => sale.station_id === stationId);
+
+  // Filter by date range if provided
   if (startDate) {
-    query = query.gte("transaction_date", startDate);
+    filteredSales = filteredSales.filter(
+      (sale) => new Date(sale.transaction_date) >= new Date(startDate),
+    );
   }
 
   if (endDate) {
-    query = query.lte("transaction_date", endDate);
+    filteredSales = filteredSales.filter(
+      (sale) => new Date(sale.transaction_date) <= new Date(endDate),
+    );
   }
 
-  const { data, error } = await query;
+  // Sort by transaction date (descending)
+  filteredSales.sort(
+    (a, b) =>
+      new Date(b.transaction_date).getTime() -
+      new Date(a.transaction_date).getTime(),
+  );
 
-  if (error) throw error;
-  return data as SaleWithDetails[];
+  return filteredSales as SaleWithDetails[];
 }
 
 export async function getSaleById(id: string) {
-  const { data, error } = await supabase
-    .from("sales")
-    .select(
-      `
-      *,
-      dispensers(dispenser_number),
-      fuel_types(name),
-      employees(profiles(full_name)),
-      customers(company_name, profiles(full_name)),
-      vehicles(license_plate, make, model)
-    `,
-    )
-    .eq("id", id)
-    .single();
+  // Mock implementation
+  console.log(`Getting sale with ID ${id}`);
+  const sale = mockSales.find((sale) => sale.id === id);
 
-  if (error) throw error;
-  return data as SaleWithDetails;
+  if (!sale) {
+    throw new Error(`Sale with ID ${id} not found`);
+  }
+
+  return sale as SaleWithDetails;
 }
 
 export async function createSale(sale: Omit<Sale, "id" | "created_at">) {
-  // Start a transaction
-  const { data, error } = await supabase.rpc("create_sale", {
-    sale_data: sale,
-  });
+  // Mock implementation
+  console.log("Creating new sale:", sale);
 
-  if (error) throw error;
-  return data as Sale;
+  const newSale = {
+    ...sale,
+    id: `sale-${Date.now()}`,
+    created_at: new Date().toISOString(),
+  };
+
+  // In a real implementation, this would be saved to the database
+  mockSales.push(newSale as any);
+
+  return newSale as Sale;
 }
 
 export async function getCustomerSales(
@@ -110,32 +160,37 @@ export async function getCustomerSales(
   startDate?: string,
   endDate?: string,
 ) {
-  let query = supabase
-    .from("sales")
-    .select(
-      `
-      *,
-      dispensers(dispenser_number),
-      fuel_types(name),
-      stations(name),
-      vehicles(license_plate, make, model)
-    `,
-    )
-    .eq("customer_id", customerId)
-    .order("transaction_date", { ascending: false });
+  // Mock implementation
+  console.log(`Getting sales for customer ${customerId}`);
+  if (startDate) console.log(`Start date: ${startDate}`);
+  if (endDate) console.log(`End date: ${endDate}`);
 
+  // Filter by customer ID
+  let filteredSales = mockSales.filter(
+    (sale) => sale.customer_id === customerId,
+  );
+
+  // Filter by date range if provided
   if (startDate) {
-    query = query.gte("transaction_date", startDate);
+    filteredSales = filteredSales.filter(
+      (sale) => new Date(sale.transaction_date) >= new Date(startDate),
+    );
   }
 
   if (endDate) {
-    query = query.lte("transaction_date", endDate);
+    filteredSales = filteredSales.filter(
+      (sale) => new Date(sale.transaction_date) <= new Date(endDate),
+    );
   }
 
-  const { data, error } = await query;
+  // Sort by transaction date (descending)
+  filteredSales.sort(
+    (a, b) =>
+      new Date(b.transaction_date).getTime() -
+      new Date(a.transaction_date).getTime(),
+  );
 
-  if (error) throw error;
-  return data;
+  return filteredSales;
 }
 
 export async function getVehicleSales(
@@ -143,29 +198,33 @@ export async function getVehicleSales(
   startDate?: string,
   endDate?: string,
 ) {
-  let query = supabase
-    .from("sales")
-    .select(
-      `
-      *,
-      dispensers(dispenser_number),
-      fuel_types(name),
-      stations(name)
-    `,
-    )
-    .eq("vehicle_id", vehicleId)
-    .order("transaction_date", { ascending: false });
+  // Mock implementation
+  console.log(`Getting sales for vehicle ${vehicleId}`);
+  if (startDate) console.log(`Start date: ${startDate}`);
+  if (endDate) console.log(`End date: ${endDate}`);
 
+  // Filter by vehicle ID
+  let filteredSales = mockSales.filter((sale) => sale.vehicle_id === vehicleId);
+
+  // Filter by date range if provided
   if (startDate) {
-    query = query.gte("transaction_date", startDate);
+    filteredSales = filteredSales.filter(
+      (sale) => new Date(sale.transaction_date) >= new Date(startDate),
+    );
   }
 
   if (endDate) {
-    query = query.lte("transaction_date", endDate);
+    filteredSales = filteredSales.filter(
+      (sale) => new Date(sale.transaction_date) <= new Date(endDate),
+    );
   }
 
-  const { data, error } = await query;
+  // Sort by transaction date (descending)
+  filteredSales.sort(
+    (a, b) =>
+      new Date(b.transaction_date).getTime() -
+      new Date(a.transaction_date).getTime(),
+  );
 
-  if (error) throw error;
-  return data;
+  return filteredSales;
 }

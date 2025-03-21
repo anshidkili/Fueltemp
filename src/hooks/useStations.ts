@@ -1,4 +1,4 @@
-import { useSupabaseQuery } from "./useSupabase";
+import { useDataQuery } from "./useSupabase";
 import {
   getStations,
   getStationById,
@@ -6,13 +6,13 @@ import {
 } from "../api/stations";
 
 export function useStations() {
-  return useSupabaseQuery(getStations, []);
+  return useDataQuery(getStations, []);
 }
 
 export function useStation(stationId: string) {
-  return useSupabaseQuery(() => getStationById(stationId), [stationId]);
+  return useDataQuery(() => getStationById(stationId), [stationId]);
 }
 
 export function useStationMetrics(stationId: string) {
-  return useSupabaseQuery(() => getStationMetrics(stationId), [stationId]);
+  return useDataQuery(() => getStationMetrics(stationId), [stationId]);
 }
