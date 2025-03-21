@@ -1,16 +1,26 @@
-import { supabase } from "../lib/supabase";
+import connectToDatabase from "../lib/mongodb";
+import Shift from "../models/Shift";
+import Employee from "../models/Employee";
+import User from "../models/User";
+import Dispenser from "../models/Dispenser";
+import FuelType from "../models/FuelType";
 
 export interface Shift {
   id: string;
   station_id: string;
   employee_id: string;
+  dispenser_id: string;
   start_time: string;
   end_time: string | null;
-  initial_readings: Record<string, number>; // dispenser_id -> reading
-  final_readings: Record<string, number> | null; // dispenser_id -> reading
-  cash_collected: number | null;
+  initial_cash: number;
+  final_cash: number | null;
+  fuel_readings: Array<{
+    fuel_type: string;
+    initial_reading: number;
+    final_reading?: number;
+  }>;
+  notes: string;
   status: "active" | "completed";
-  notes: string | null;
   created_at: string;
 }
 
@@ -23,24 +33,42 @@ export interface ShiftWithEmployee extends Shift {
 }
 
 export async function getCurrentShift(employeeId: string) {
-  const { data, error } = await supabase
-    .from("shifts")
-    .select(
-      `
-      *,
-      employees(profiles(full_name))
-    `,
-    )
-    .eq("employee_id", employeeId)
-    .eq("status", "active")
-    .single();
+  try {
+    await connectToDatabase();
 
-  if (error && error.code !== "PGRST116") {
-    // PGRST116 is the error code for no rows returned
+    const shift = await Shift.findOne({
+      employee_id: employeeId,
+      status: "active",
+    }).lean();
+
+    if (!shift) return null;
+
+    const employee = await Employee.findById(shift.employee_id).lean();
+    const user = await User.findById(employee.user_id).lean();
+
+    return {
+      id: shift._id.toString(),
+      station_id: shift.station_id.toString(),
+      employee_id: shift.employee_id.toString(),
+      dispenser_id: shift.dispenser_id.toString(),
+      start_time: shift.start_time.toISOString(),
+      end_time: shift.end_time ? shift.end_time.toISOString() : null,
+      initial_cash: shift.initial_cash,
+      final_cash: shift.final_cash,
+      fuel_readings: shift.fuel_readings,
+      notes: shift.notes,
+      status: shift.status,
+      created_at: shift.created_at.toISOString(),
+      employees: {
+        profiles: {
+          full_name: user.full_name,
+        },
+      },
+    } as ShiftWithEmployee;
+  } catch (error) {
+    console.error("Error getting current shift:", error);
     throw error;
   }
-
-  return data as ShiftWithEmployee | null;
 }
 
 export async function getShifts(
@@ -48,83 +76,139 @@ export async function getShifts(
   startDate?: string,
   endDate?: string,
 ) {
-  let query = supabase
-    .from("shifts")
-    .select(
-      `
-      *,
-      employees(profiles(full_name))
-    `,
-    )
-    .eq("station_id", stationId)
-    .order("start_time", { ascending: false });
+  try {
+    await connectToDatabase();
 
-  if (startDate) {
-    query = query.gte("start_time", startDate);
+    let query: any = { station_id: stationId };
+
+    if (startDate) {
+      query.start_time = { $gte: new Date(startDate) };
+    }
+
+    if (endDate) {
+      if (!query.start_time) query.start_time = {};
+      query.start_time.$lte = new Date(endDate);
+    }
+
+    const shifts = await Shift.find(query).sort({ start_time: -1 }).lean();
+
+    const shiftsWithEmployees = await Promise.all(
+      shifts.map(async (shift) => {
+        const employee = await Employee.findById(shift.employee_id).lean();
+        const user = await User.findById(employee.user_id).lean();
+
+        return {
+          id: shift._id.toString(),
+          station_id: shift.station_id.toString(),
+          employee_id: shift.employee_id.toString(),
+          dispenser_id: shift.dispenser_id.toString(),
+          start_time: shift.start_time.toISOString(),
+          end_time: shift.end_time ? shift.end_time.toISOString() : null,
+          initial_cash: shift.initial_cash,
+          final_cash: shift.final_cash,
+          fuel_readings: shift.fuel_readings,
+          notes: shift.notes,
+          status: shift.status,
+          created_at: shift.created_at.toISOString(),
+          employees: {
+            profiles: {
+              full_name: user.full_name,
+            },
+          },
+        };
+      }),
+    );
+
+    return shiftsWithEmployees as ShiftWithEmployee[];
+  } catch (error) {
+    console.error("Error getting shifts:", error);
+    throw error;
   }
-
-  if (endDate) {
-    query = query.lte("start_time", endDate);
-  }
-
-  const { data, error } = await query;
-
-  if (error) throw error;
-  return data as ShiftWithEmployee[];
 }
 
 export async function getShiftById(id: string) {
-  const { data, error } = await supabase
-    .from("shifts")
-    .select(
-      `
-      *,
-      employees(profiles(full_name))
-    `,
-    )
-    .eq("id", id)
-    .single();
+  try {
+    await connectToDatabase();
 
-  if (error) throw error;
-  return data as ShiftWithEmployee;
+    const shift = await Shift.findById(id).lean();
+    if (!shift) throw new Error("Shift not found");
+
+    const employee = await Employee.findById(shift.employee_id).lean();
+    const user = await User.findById(employee.user_id).lean();
+
+    return {
+      id: shift._id.toString(),
+      station_id: shift.station_id.toString(),
+      employee_id: shift.employee_id.toString(),
+      dispenser_id: shift.dispenser_id.toString(),
+      start_time: shift.start_time.toISOString(),
+      end_time: shift.end_time ? shift.end_time.toISOString() : null,
+      initial_cash: shift.initial_cash,
+      final_cash: shift.final_cash,
+      fuel_readings: shift.fuel_readings,
+      notes: shift.notes,
+      status: shift.status,
+      created_at: shift.created_at.toISOString(),
+      employees: {
+        profiles: {
+          full_name: user.full_name,
+        },
+      },
+    } as ShiftWithEmployee;
+  } catch (error) {
+    console.error("Error getting shift by ID:", error);
+    throw error;
+  }
 }
 
-export async function startShift(
-  shift: Omit<
-    Shift,
-    | "id"
-    | "created_at"
-    | "end_time"
-    | "final_readings"
-    | "cash_collected"
-    | "status"
-  >,
-) {
-  // First check if there's already an active shift
-  const { data: existingShift } = await supabase
-    .from("shifts")
-    .select("id")
-    .eq("employee_id", shift.employee_id)
-    .eq("status", "active")
-    .single();
+export async function startShift(shift: {
+  station_id: string;
+  employee_id: string;
+  dispenser_id: string;
+  initial_cash: number;
+  fuel_readings: Array<{
+    fuel_type: string;
+    initial_reading: number;
+  }>;
+  notes: string;
+}) {
+  try {
+    await connectToDatabase();
 
-  if (existingShift) {
-    throw new Error("Employee already has an active shift");
+    // First check if there's already an active shift
+    const existingShift = await Shift.findOne({
+      employee_id: shift.employee_id,
+      status: "active",
+    });
+
+    if (existingShift) {
+      throw new Error("Employee already has an active shift");
+    }
+
+    const newShift = await Shift.create({
+      ...shift,
+      start_time: new Date(),
+      status: "active",
+    });
+
+    return {
+      id: newShift._id.toString(),
+      station_id: newShift.station_id.toString(),
+      employee_id: newShift.employee_id.toString(),
+      dispenser_id: newShift.dispenser_id.toString(),
+      start_time: newShift.start_time.toISOString(),
+      end_time: null,
+      initial_cash: newShift.initial_cash,
+      final_cash: null,
+      fuel_readings: newShift.fuel_readings,
+      notes: newShift.notes,
+      status: newShift.status,
+      created_at: newShift.created_at.toISOString(),
+    } as Shift;
+  } catch (error) {
+    console.error("Error starting shift:", error);
+    throw error;
   }
-
-  const { data, error } = await supabase
-    .from("shifts")
-    .insert([
-      {
-        ...shift,
-        status: "active",
-      },
-    ])
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data as Shift;
 }
 
 export async function endShift(
@@ -133,19 +217,52 @@ export async function endShift(
   cashCollected: number,
   notes?: string,
 ) {
-  const { data, error } = await supabase
-    .from("shifts")
-    .update({
-      end_time: new Date().toISOString(),
-      final_readings: finalReadings,
-      cash_collected: cashCollected,
-      notes: notes || null,
-      status: "completed",
-    })
-    .eq("id", id)
-    .select()
-    .single();
+  try {
+    await connectToDatabase();
 
-  if (error) throw error;
-  return data as Shift;
+    const shift = await Shift.findById(id);
+    if (!shift) throw new Error("Shift not found");
+
+    // Update fuel readings with final readings
+    const updatedFuelReadings = shift.fuel_readings.map((reading) => {
+      const fuelTypeId = reading.fuel_type.toString();
+      if (finalReadings[fuelTypeId]) {
+        return {
+          ...reading.toObject(),
+          final_reading: finalReadings[fuelTypeId],
+        };
+      }
+      return reading;
+    });
+
+    const updatedShift = await Shift.findByIdAndUpdate(
+      id,
+      {
+        end_time: new Date(),
+        final_cash: cashCollected,
+        fuel_readings: updatedFuelReadings,
+        notes: notes || shift.notes,
+        status: "completed",
+      },
+      { new: true, runValidators: true },
+    ).lean();
+
+    return {
+      id: updatedShift._id.toString(),
+      station_id: updatedShift.station_id.toString(),
+      employee_id: updatedShift.employee_id.toString(),
+      dispenser_id: updatedShift.dispenser_id.toString(),
+      start_time: updatedShift.start_time.toISOString(),
+      end_time: updatedShift.end_time.toISOString(),
+      initial_cash: updatedShift.initial_cash,
+      final_cash: updatedShift.final_cash,
+      fuel_readings: updatedShift.fuel_readings,
+      notes: updatedShift.notes,
+      status: updatedShift.status,
+      created_at: updatedShift.created_at.toISOString(),
+    } as Shift;
+  } catch (error) {
+    console.error("Error ending shift:", error);
+    throw error;
+  }
 }

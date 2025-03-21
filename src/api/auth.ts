@@ -1,4 +1,6 @@
-import { supabase } from "../lib/supabase";
+import connectToDatabase from "../lib/mongodb";
+import User from "../models/User";
+import { createToken, verifyToken } from "../lib/jwt";
 
 export interface AuthUser {
   id: string;
@@ -10,31 +12,29 @@ export interface AuthUser {
 
 export async function signIn(email: string, password: string) {
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    await connectToDatabase();
 
-    if (error) throw error;
+    const user = await User.findOne({ email });
+    if (!user) {
+      throw new Error("Invalid credentials");
+    }
 
-    // Fetch user profile data
-    const { data: profileData, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", data.user.id)
-      .single();
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      throw new Error("Invalid credentials");
+    }
 
-    if (profileError) throw profileError;
+    const token = createToken({ userId: user._id });
 
     return {
       user: {
-        id: data.user.id,
-        email: data.user.email!,
-        name: profileData.full_name,
-        role: profileData.role,
-        avatar: profileData.avatar_url,
+        id: user._id.toString(),
+        email: user.email,
+        name: user.full_name,
+        role: user.role,
+        avatar: user.avatar_url,
       } as AuthUser,
-      session: data.session,
+      session: { token },
     };
   } catch (error) {
     console.error("Error signing in:", error);
@@ -43,36 +43,44 @@ export async function signIn(email: string, password: string) {
 }
 
 export async function signOut() {
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
+  // With JWT, we don't need to do anything server-side
+  // The client will remove the token
+  return true;
 }
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
-    const { data: sessionData } = await supabase.auth.getSession();
+    // For browser compatibility, use try-catch when accessing localStorage
+    let token;
+    try {
+      token = localStorage.getItem("auth_token");
+    } catch (e) {
+      console.error("Error accessing localStorage:", e);
+      return null;
+    }
 
-    if (!sessionData.session) return null;
+    if (!token) return null;
 
-    const { data: userData, error: userError } = await supabase.auth.getUser();
+    try {
+      await connectToDatabase();
 
-    if (userError || !userData.user) return null;
+      const decoded = verifyToken(token) as { userId: string };
+      if (!decoded || !decoded.userId) return null;
 
-    // Fetch profile data
-    const { data: profileData, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userData.user.id)
-      .single();
+      const user = await User.findById(decoded.userId);
+      if (!user) return null;
 
-    if (profileError) return null;
-
-    return {
-      id: userData.user.id,
-      email: userData.user.email!,
-      name: profileData.full_name,
-      role: profileData.role,
-      avatar: profileData.avatar_url,
-    };
+      return {
+        id: user._id.toString(),
+        email: user.email,
+        name: user.full_name,
+        role: user.role,
+        avatar: user.avatar_url,
+      };
+    } catch (e) {
+      console.error("Error verifying token or fetching user:", e);
+      return null;
+    }
   } catch (error) {
     console.error("Error getting current user:", error);
     return null;

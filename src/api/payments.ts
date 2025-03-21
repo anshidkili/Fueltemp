@@ -1,4 +1,8 @@
-import { supabase } from "../lib/supabase";
+import connectToDatabase from "../lib/mongodb";
+import Payment from "../models/Payment";
+import Customer from "../models/Customer";
+import User from "../models/User";
+import Invoice from "../models/Invoice";
 
 export interface Payment {
   id: string;
@@ -26,87 +30,159 @@ export interface PaymentWithDetails extends Payment {
 }
 
 export async function getPayments(customerId: string) {
-  const { data, error } = await supabase
-    .from("payments")
-    .select(
-      `
-      *,
-      customers(company_name, profiles(full_name)),
-      invoices(invoice_number, total_amount)
-    `,
-    )
-    .eq("customer_id", customerId)
-    .order("payment_date", { ascending: false });
+  try {
+    await connectToDatabase();
 
-  if (error) throw error;
-  return data as PaymentWithDetails[];
+    const payments = await Payment.find({ customer_id: customerId })
+      .sort({ payment_date: -1 })
+      .lean();
+
+    const paymentsWithDetails = await Promise.all(
+      payments.map(async (payment) => {
+        const customer = await Customer.findById(payment.customer_id).lean();
+        const user = await User.findById(customer.user_id).lean();
+
+        let invoiceData = null;
+        if (payment.invoice_id) {
+          const invoice = await Invoice.findById(payment.invoice_id).lean();
+          if (invoice) {
+            invoiceData = {
+              invoice_number: invoice.invoice_number,
+              total_amount: invoice.total_amount,
+            };
+          }
+        }
+
+        return {
+          id: payment._id.toString(),
+          customer_id: payment.customer_id.toString(),
+          invoice_id: payment.invoice_id ? payment.invoice_id.toString() : null,
+          amount: payment.amount,
+          payment_date: payment.payment_date.toISOString(),
+          payment_method: payment.payment_method,
+          reference_number: payment.reference_number,
+          notes: payment.notes,
+          created_at: payment.created_at.toISOString(),
+          customers: {
+            company_name: customer.company_name,
+            profiles: {
+              full_name: user.full_name,
+            },
+          },
+          invoices: invoiceData,
+        };
+      }),
+    );
+
+    return paymentsWithDetails as PaymentWithDetails[];
+  } catch (error) {
+    console.error("Error getting payments:", error);
+    throw error;
+  }
 }
 
 export async function getPaymentById(id: string) {
-  const { data, error } = await supabase
-    .from("payments")
-    .select(
-      `
-      *,
-      customers(company_name, profiles(full_name)),
-      invoices(invoice_number, total_amount)
-    `,
-    )
-    .eq("id", id)
-    .single();
+  try {
+    await connectToDatabase();
 
-  if (error) throw error;
-  return data as PaymentWithDetails;
+    const payment = await Payment.findById(id).lean();
+    if (!payment) throw new Error("Payment not found");
+
+    const customer = await Customer.findById(payment.customer_id).lean();
+    const user = await User.findById(customer.user_id).lean();
+
+    let invoiceData = null;
+    if (payment.invoice_id) {
+      const invoice = await Invoice.findById(payment.invoice_id).lean();
+      if (invoice) {
+        invoiceData = {
+          invoice_number: invoice.invoice_number,
+          total_amount: invoice.total_amount,
+        };
+      }
+    }
+
+    return {
+      id: payment._id.toString(),
+      customer_id: payment.customer_id.toString(),
+      invoice_id: payment.invoice_id ? payment.invoice_id.toString() : null,
+      amount: payment.amount,
+      payment_date: payment.payment_date.toISOString(),
+      payment_method: payment.payment_method,
+      reference_number: payment.reference_number,
+      notes: payment.notes,
+      created_at: payment.created_at.toISOString(),
+      customers: {
+        company_name: customer.company_name,
+        profiles: {
+          full_name: user.full_name,
+        },
+      },
+      invoices: invoiceData,
+    } as PaymentWithDetails;
+  } catch (error) {
+    console.error("Error getting payment by ID:", error);
+    throw error;
+  }
 }
 
 export async function createPayment(
   payment: Omit<Payment, "id" | "created_at">,
 ) {
-  // This would typically be a database function to handle the payment and update invoice status
-  // For now, we'll simulate with client-side logic
-  const { data, error } = await supabase
-    .from("payments")
-    .insert([payment])
-    .select()
-    .single();
+  try {
+    await connectToDatabase();
 
-  if (error) throw error;
+    // Create the payment
+    const newPayment = await Payment.create({
+      customer_id: payment.customer_id,
+      invoice_id: payment.invoice_id,
+      amount: payment.amount,
+      payment_date: new Date(payment.payment_date),
+      payment_method: payment.payment_method,
+      reference_number: payment.reference_number,
+      notes: payment.notes,
+    });
 
-  // If this payment is for an invoice, update the invoice status
-  if (payment.invoice_id) {
-    // Get the invoice
-    const { data: invoice, error: invoiceError } = await supabase
-      .from("invoices")
-      .select("total_amount, paid_amount")
-      .eq("id", payment.invoice_id)
-      .single();
+    // Update customer balance
+    await Customer.findByIdAndUpdate(payment.customer_id, {
+      $inc: { current_balance: -payment.amount },
+    });
 
-    if (invoiceError) throw invoiceError;
+    // If payment is for a specific invoice, update the invoice
+    if (payment.invoice_id) {
+      const invoice = await Invoice.findById(payment.invoice_id);
+      if (invoice) {
+        const newPaidAmount = invoice.paid_amount + payment.amount;
+        let newStatus = invoice.status;
 
-    // Calculate new paid amount
-    const newPaidAmount = (invoice.paid_amount || 0) + payment.amount;
+        if (newPaidAmount >= invoice.total_amount) {
+          newStatus = "paid";
+        } else if (newPaidAmount > 0) {
+          newStatus = "partially_paid";
+        }
 
-    // Determine new status
-    let newStatus: "paid" | "partially_paid" | "pending";
-    if (newPaidAmount >= invoice.total_amount) {
-      newStatus = "paid";
-    } else if (newPaidAmount > 0) {
-      newStatus = "partially_paid";
-    } else {
-      newStatus = "pending";
+        await Invoice.findByIdAndUpdate(payment.invoice_id, {
+          paid_amount: newPaidAmount,
+          status: newStatus,
+        });
+      }
     }
 
-    // Update the invoice
-    const { error: updateError } = await supabase
-      .from("invoices")
-      .update({
-        paid_amount: newPaidAmount,
-        status: newStatus,
-      })
-      .eq("id", payment.invoice_id);
-
-    if (updateError) throw updateError;
+    return {
+      id: newPayment._id.toString(),
+      customer_id: newPayment.customer_id.toString(),
+      invoice_id: newPayment.invoice_id
+        ? newPayment.invoice_id.toString()
+        : null,
+      amount: newPayment.amount,
+      payment_date: newPayment.payment_date.toISOString(),
+      payment_method: newPayment.payment_method,
+      reference_number: newPayment.reference_number,
+      notes: newPayment.notes,
+      created_at: newPayment.created_at.toISOString(),
+    } as Payment;
+  } catch (error) {
+    console.error("Error creating payment:", error);
+    throw error;
   }
-
-  return data as Payment;
 }

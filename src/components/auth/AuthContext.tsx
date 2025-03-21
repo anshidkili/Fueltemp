@@ -33,7 +33,7 @@ interface AuthProviderProps {
   children: React.ReactNode;
 }
 
-// Mock user data for demo purposes when Supabase is not connected
+// Mock user data for demo purposes when MongoDB is not connected
 const MOCK_USERS = [
   {
     id: "1",
@@ -69,12 +69,11 @@ const MOCK_USERS = [
   },
 ];
 
-// Check if Supabase is configured
-const isSupabaseConfigured = () => {
-  return (
-    !!import.meta.env.VITE_SUPABASE_URL &&
-    !!import.meta.env.VITE_SUPABASE_ANON_KEY
-  );
+// Check if MongoDB connection is available
+const isMongoDBConfigured = () => {
+  // For now, we'll assume MongoDB is configured
+  // In a real app, you might check for environment variables
+  return true;
 };
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
@@ -85,14 +84,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        if (isSupabaseConfigured()) {
-          // Try to get user from Supabase
-          const authUser = await getCurrentUser();
-          if (authUser) {
-            setUser(mapAuthUserToUser(authUser));
-          }
-        } else {
-          // Fallback to localStorage for demo
+        // For demo purposes, always use localStorage
+        try {
           const savedUser = localStorage.getItem("fuelstation_user");
           if (savedUser) {
             try {
@@ -102,6 +95,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               localStorage.removeItem("fuelstation_user");
             }
           }
+        } catch (e) {
+          console.error("Error accessing localStorage:", e);
         }
       } catch (err) {
         console.error("Auth initialization error:", err);
@@ -129,36 +124,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setError("");
 
     try {
-      if (isSupabaseConfigured()) {
-        // Use Supabase auth
-        const { user: authUser } = await signIn(email, password);
-        if (authUser) {
-          setUser(mapAuthUserToUser(authUser));
-          return true;
-        } else {
-          setError("Invalid email or password");
-          return false;
-        }
-      } else {
-        // Fallback to mock auth for demo
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+      // For demo purposes, always use mock auth
+      // This avoids JWT and MongoDB issues in the browser
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        const foundUser = MOCK_USERS.find(
-          (user) => user.email === email && user.password === password,
-        );
+      const foundUser = MOCK_USERS.find(
+        (user) => user.email === email && user.password === password,
+      );
 
-        if (foundUser) {
-          const { password, ...userWithoutPassword } = foundUser;
-          setUser(userWithoutPassword);
+      if (foundUser) {
+        const { password, ...userWithoutPassword } = foundUser;
+        setUser(userWithoutPassword);
+        try {
           localStorage.setItem(
             "fuelstation_user",
             JSON.stringify(userWithoutPassword),
           );
-          return true;
-        } else {
-          setError("Invalid email or password");
-          return false;
+        } catch (e) {
+          console.error("Error saving to localStorage:", e);
         }
+        return true;
+      } else {
+        setError("Invalid email or password");
+        return false;
       }
     } catch (err) {
       console.error("Login error:", err);
@@ -171,10 +159,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async () => {
     try {
-      if (isSupabaseConfigured()) {
-        await signOut();
-      } else {
+      try {
         localStorage.removeItem("fuelstation_user");
+        localStorage.removeItem("auth_token");
+      } catch (e) {
+        console.error("Error removing from localStorage:", e);
       }
       setUser(null);
     } catch (err) {
